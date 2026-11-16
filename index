@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>走動管理附件 - PDF 相片合成工具</title>
+    <!-- Tailwind CSS 樣式 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- jsPDF 套件 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center py-6 px-4">
+
+    <div class="max-w-4xl w-full bg-slate-800 rounded-xl shadow-xl p-6 border border-slate-700">
+        <h1 class="text-2xl font-bold text-center mb-2 text-emerald-400">走動管理附件 PDF 快速合成器</h1>
+        <p class="text-slate-400 text-center text-sm mb-6">支援拖拉上傳、即時預覽、順序調整，一鍵生成 A4 排版 PDF</p>
+
+        <!-- 主要操作區 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            <!-- 左側：檔案清單與按鈕 (佔 2 欄) -->
+            <div class="md:col-span-2 flex flex-col">
+                <label class="block text-sm font-medium mb-2 text-slate-300">照片清單 (可直接將圖片拖曳至下方區域)：</label>
+                
+                <!-- 拖拉上傳與清單容器 -->
+                <div id="drop-zone" class="border-2 border-dashed border-slate-600 rounded-lg p-4 bg-slate-900/50 flex flex-col h-80 relative">
+                    <div id="file-list" class="overflow-y-auto flex-grow space-y-2 pr-1">
+                        <div id="empty-hint" class="h-full flex items-center justify-center text-slate-500 text-sm text-center">
+                            點擊「新增照片」或將圖片拖曳至此
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 列表操作按鈕 -->
+                <div class="flex flex-wrap gap-2 mt-3">
+                    <button onclick="document.getElementById('file-input').click()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1">➕ 新增照片</button>
+                    <input type="file" id="file-input" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+                    
+                    <button onclick="moveItem(-1)" class="bg-slate-700 hover:bg-slate-650 text-white px-3 py-1.5 rounded text-sm transition">▲ 上移</button>
+                    <button onclick="moveItem(1)" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-sm transition">▼ 下移</button>
+                    <button onclick="removeItem()" class="bg-rose-600/80 hover:bg-rose-600 text-white px-3 py-1.5 rounded text-sm transition">❌ 移除</button>
+                    <button onclick="clearFiles()" class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded text-sm transition ml-auto">🗑️ 清空</button>
+                </div>
+            </div>
+
+            <!-- 右側：即時預覽區 (佔 1 欄) -->
+            <div class="flex flex-col">
+                <label class="block text-sm font-medium mb-2 text-slate-300">圖片即時預覽：</label>
+                <div class="bg-slate-900 border border-slate-700 rounded-lg h-80 flex items-center justify-center p-2 overflow-hidden relative">
+                    <span id="preview-placeholder" class="text-slate-500 text-sm text-center">請選擇清單中的照片<br>進行預覽</span>
+                    <img id="preview-img" class="max-h-full max-w-full object-contain hidden rounded" alt="預覽圖">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 下方設定與產生按鈕 -->
+        <div class="mt-8 pt-6 border-t border-slate-700 flex flex-wrap items-center justify-between gap-4">
+            
+            <!-- 排版設定 -->
+            <div class="flex items-center gap-6 bg-slate-900/60 px-4 py-2.5 rounded-lg border border-slate-700">
+                <span class="text-sm font-medium text-slate-300">每頁張數：</span>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="radio" name="layout" value="3" checked class="text-emerald-500 focus:ring-emerald-400"> 每頁 3 張 (推薦)
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="radio" name="layout" value="2" class="text-emerald-500 focus:ring-emerald-400"> 每頁 2 張
+                </label>
+            </div>
+
+            <!-- 產生按鈕 -->
+            <button onclick="generatePDF()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-lg shadow-lg transition flex items-center gap-2 cursor-pointer">
+                🚀 產生 PDF 檔案
+            </button>
+        </div>
+
+    </div>
+
+    <!-- JavaScript 邏輯 -->
+    <script>
+        let fileList = []; // 儲存 {file, url, name}
+        let selectedIndex = -1;
+
+        const dropZone = document.getElementById('drop-zone');
+        
+        // 拖放事件處理
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => { e.preventDefault(); dropZone.classList.add('border-emerald-500', 'bg-slate-900'); }, false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => { e.preventDefault(); dropZone.classList.remove('border-emerald-500', 'bg-slate-900'); }, false);
+        });
+        dropZone.addEventListener('drop', e => {
+            handleFiles(e.dataTransfer.files);
+        }, false);
+
+        function handleFiles(files) {
+            const validTypes = ['image/jpeg', 'image/png', 'image/bmp', 'image/webp'];
+            for (let file of files) {
+                if (validTypes.includes(file.type)) {
+                    fileList.push({
+                        file: file,
+                        url: URL.createObjectURL(file),
+                        name: file.name
+                    });
+                }
+            }
+            renderList();
+        }
+
+        function renderList() {
+            const container = document.getElementById('file-list');
+            if (fileList.length === 0) {
+                container.innerHTML = `<div id="empty-hint" class="h-full flex items-center justify-center text-slate-500 text-sm text-center">點擊「新增照片」或將圖片拖曳至此</div>`;
+                clearPreview();
+                selectedIndex = -1;
+                return;
+            }
+
+            container.innerHTML = '';
+            fileList.forEach((item, index) => {
+                const div = document.createElement('div
